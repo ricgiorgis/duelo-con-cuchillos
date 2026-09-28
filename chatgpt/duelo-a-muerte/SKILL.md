@@ -30,13 +30,13 @@ Wait for a yes before you spend anything.
 ## 1. Check what this surface can do
 
 Before the first run in a conversation, check two things:
-1. **Parallel sub-agents.** Can you spawn sub-agents here? ChatGPT Work, the ChatGPT desktop app and Codex can. A plain chat may not.
-2. **Model choice per sub-agent.** Can you give each sub-agent its own model? Pick three models that are available to you, from fastest to strongest. These are the three tiers.
+1. Parallel sub-agents. Can you spawn sub-agents here? ChatGPT Work, the ChatGPT desktop app and Codex can. A plain chat may not.
+2. Model choice per sub-agent. Can you give each sub-agent its own model? Pick three models that are available to you, from fastest to strongest. These are the three tiers.
 
 Then use one of three modes, and tell the user in one line which one you are using:
-- **Full mode.** You have sub-agents and three different models. Pass the three model names, weakest to strongest, to `init --models`.
-- **Effort mode.** You have sub-agents but cannot pick a model per agent. Use the same model at low, medium and high reasoning effort, and pass `--models low,medium,high`. Tell the user that the diversity comes from reasoning effort, not from different models.
-- **Solo mode.** You have no sub-agents. Run every job yourself, one after another, and treat each brief as a fresh start: do not reuse what you wrote for another job. Tell the user before you start that this mode is weaker, because one context sees everything, so the judging is not truly blind and the answers are less independent. Ask whether they still want it.
+- Full mode. You have sub-agents and three different models. Pass the three model names, weakest to strongest, to `init --models`.
+- Effort mode. You have sub-agents but cannot pick a model per agent. Use the same model at low, medium and high reasoning effort, and pass `--models low,medium,high`. Tell the user that the diversity comes from reasoning effort, not from different models.
+- Solo mode. You have no sub-agents. Run every job yourself, one after another, and treat each brief as a fresh start: do not reuse what you wrote for another job. Tell the user before you start that this mode is weaker, because one context sees everything, so the judging is not truly blind and the answers are less independent. Ask whether they still want it.
 
 ## 2. Write the task file
 

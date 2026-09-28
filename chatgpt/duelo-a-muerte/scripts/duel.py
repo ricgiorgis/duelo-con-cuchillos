@@ -153,7 +153,7 @@ When the file is written, reply with one line and nothing else: JUDGED {judge} t
 
 
 def die(msg):
-    print("ERROR: " + msg)
+    print(f"ERROR: {msg}")
     sys.exit(1)
 
 
@@ -178,177 +178,154 @@ def has_output(p):
 
 
 def build_grid(models):
-    """9 duelists: every model x every lens. Groups form a Latin square, so each group of three has
-    one duelist per model and one per lens."""
-    keys = list(LENSES)
-    duelists, groups = {}, []
-    n = 0
-    for mi, m in enumerate(models):
-        for li, lk in enumerate(keys):
-            n += 1
-            duelists["d%d" % n] = {"model": m, "lens": lk, "mi": mi, "li": li}
-    for g in range(3):
-        members = []
-        for mi in range(3):
-            li = (mi + g) % 3
-            members.append(next(d for d, v in duelists.items() if v["mi"] == mi and v["li"] == li))
-        groups.append(members)
+    """Nine duelists, every model x every lens: d1-d3 are the first model, d4-d6 the second, d7-d9 the third.
+    The groups form a Latin square, so each group of three has one duelist per model and one per lens."""
+    lenses = list(LENSES)
+    duelists = {f"d{mi * 3 + li + 1}": {"model": m, "lens": lk}
+                for mi, m in enumerate(models) for li, lk in enumerate(lenses)}
+    groups = [[f"d{mi * 3 + (mi + g) % 3 + 1}" for mi in range(3)] for g in range(3)]
     return duelists, groups
 
 
-def cmd_init(a):
-    models = [m.strip() for m in a.models.split(",") if m.strip()]
+def cmd_init(args):
+    models = [m.strip() for m in args.models.split(",") if m.strip()]
     if len(models) != 3:
         die("--models needs exactly three names, weakest to strongest, e.g. haiku,sonnet,opus")
-    task = Path(a.task)
+    task = Path(args.task)
     if not has_output(task):
-        die("task file missing or empty: %s" % task)
-    seed = a.seed if a.seed is not None else random.randrange(10 ** 6)
+        die(f"task file missing or empty: {task}")
+    if args.baseline and not has_output(args.baseline):
+        die(f"baseline file missing or empty: {args.baseline}")
+    seed = args.seed if args.seed is not None else random.randrange(10 ** 6)
     rd = ROOT / time.strftime("%Y%m%d-%H%M%S")
-    for sub in ["solutions", "attacks", "attacks_in", "defense", "revised", "judging", "verdicts", "briefs", "scratch"]:
+    for sub in ["solutions", "attacks", "attacks_in", "defense", "revised", "judging", "verdicts", "briefs"]:
         (rd / sub).mkdir(parents=True, exist_ok=True)
     (rd / "task.md").write_text(task.read_text())
-    has_base = False
-    if a.baseline:
-        b = Path(a.baseline)
-        if not has_output(b):
-            die("baseline file missing or empty: %s" % b)
-        (rd / "baseline.md").write_text(b.read_text())
-        has_base = True
+    if args.baseline:
+        (rd / "baseline.md").write_text(Path(args.baseline).read_text())
     duelists, groups = build_grid(models)
     st = {"seed": seed, "models": models, "duelists": duelists, "groups": groups,
-          "baseline": has_base, "tries": {}, "mapping": None, "done": False}
+          "baseline": bool(args.baseline), "tries": {}, "mapping": None, "done": False}
     save(rd, st)
     (ROOT / "LATEST").write_text(str(rd.resolve()))
-    print("RUN %s  seed %d" % (rd.resolve(), seed))
-    print("models (weak->strong): %s | research: %s | judges: %s" % (", ".join(models), models[1], ", ".join(models)))
+    print(f"RUN {rd.resolve()}  seed {seed}")
+    print(f"models (weak->strong): {', '.join(models)} | research: {models[1]} | judges: {', '.join(models)}")
     for i, g in enumerate(groups, 1):
-        print("group %d: " % i + ", ".join("%s=%s/%s" % (d, duelists[d]["model"], LENSES[duelists[d]["lens"]][0]) for d in g))
+        print(f"group {i}: " + ", ".join(f"{d}={duelists[d]['model']}/{LENSES[duelists[d]['lens']][0]}" for d in g))
     print("calls: 1 research + 9 answers + 9 attacks + 9 revisions + 3 judges = 31")
     print("Next: python3 duel.py next")
 
 
 def rivals(st, d):
-    g = next(g for g in st["groups"] if d in g)
-    return [x for x in g if x != d]
+    group = next(g for g in st["groups"] if d in g)
+    return [x for x in group if x != d]
 
 
 def split_attacks(rd, st):
     """Cut every attacker's file into per-target sections, so a defender reads only what hit it."""
-    got = {d: [] for d in st["duelists"]}
-    for att in st["duelists"]:
-        p = rd / "attacks" / ("%s.md" % att)
+    received = {d: [] for d in st["duelists"]}
+    for attacker in st["duelists"]:
+        p = rd / "attacks" / f"{attacker}.md"
         text = p.read_text() if p.exists() else "NO OUTPUT"
         parts = re.split(r"^===\s*TARGET\s+(d\d+)\s*===\s*$", text, flags=re.M)
-        found = {}
-        for i in range(1, len(parts) - 1, 2):
-            found[parts[i]] = parts[i + 1].strip()
-        for tgt in rivals(st, att):
-            body = found.get(tgt)
+        sections = {parts[i]: parts[i + 1].strip() for i in range(1, len(parts) - 1, 2)}
+        for target in rivals(st, attacker):
+            body = sections.get(target)
             if body is None:
-                body = "NO OUTPUT" if text.strip() == "NO OUTPUT" else "(attacker's file had no clean section for you; full file follows)\n" + text
-            got[tgt].append("### Attacks from %s\n%s" % (att, body))
-    for d, chunks in got.items():
-        (rd / "attacks_in" / ("%s.md" % d)).write_text("\n\n".join(chunks) + "\n")
+                body = "NO OUTPUT" if text.strip() == "NO OUTPUT" else \
+                    "(attacker's file had no clean section for you; full file follows)\n" + text
+            received[target].append(f"### Attacks from {attacker}\n{body}")
+    for d, chunks in received.items():
+        (rd / "attacks_in" / f"{d}.md").write_text("\n\n".join(chunks) + "\n")
 
 
 def anonymize(rd, st):
-    rng = random.Random(st["seed"])
-    entries = list(st["duelists"])
-    if st["baseline"]:
-        entries.append("baseline")
-    rng.shuffle(entries)
+    """Shuffle the revised answers (and the baseline) into judging/A.md, B.md, ... and record who is who."""
+    entries = list(st["duelists"]) + (["baseline"] if st["baseline"] else [])
+    random.Random(st["seed"]).shuffle(entries)
     mapping = {}
-    for i, e in enumerate(entries):
+    for i, entry in enumerate(entries):
         letter = chr(ord("A") + i)
-        if e == "baseline":
+        if entry == "baseline":
             src = rd / "baseline.md"
         else:
-            src = rd / "revised" / ("%s.md" % e)
+            src = rd / "revised" / f"{entry}.md"
             if not has_output(src) or src.read_text().strip() == "NO OUTPUT":
-                src = rd / "solutions" / ("%s.md" % e)
-        (rd / "judging" / ("%s.md" % letter)).write_text(src.read_text() if src.exists() else "NO OUTPUT")
-        mapping[letter] = e
+                src = rd / "solutions" / f"{entry}.md"
+        (rd / "judging" / f"{letter}.md").write_text(src.read_text() if src.exists() else "NO OUTPUT")
+        mapping[letter] = entry
     st["mapping"] = mapping
     save(rd, st)
 
 
-def jobs_for(rd, st, phase):
-    task = (rd / "task.md").read_text()
-    dossier = str((rd / "dossier.md").resolve())
-    common = {"task": task, "dossier": dossier, "run_dir": str(rd.resolve())}
-    jobs = []
+def expected_outputs(rd, st, phase):
+    """The one place that says which files each job of a phase must write. Judges given up on are left out."""
+    ds = list(st["duelists"])
     if phase == "research":
-        out = rd / "dossier.md"
-        jobs.append(("research", st["models"][1], T_RESEARCH.format(out=out.resolve(), **common), [out]))
-    elif phase in ("duel", "attack", "revise"):
-        for d, v in st["duelists"].items():
-            ln, lh = LENSES[v["lens"]]
-            own = (rd / "solutions" / ("%s.md" % d)).resolve()
-            if phase == "duel":
-                out = rd / "solutions" / ("%s.md" % d)
-                txt = T_DUEL.format(id=d, lens_name=ln, lens_how=lh, out=out.resolve(), **common)
-                jobs.append((d, v["model"], txt, [out]))
-            elif phase == "attack":
-                t1, t2 = rivals(st, d)
-                out = rd / "attacks" / ("%s.md" % d)
-                txt = T_ATTACK.format(id=d, lens_name=ln, lens_how=lh, t1=t1, t2=t2, own=own,
-                                      p1=(rd / "solutions" / ("%s.md" % t1)).resolve(),
-                                      p2=(rd / "solutions" / ("%s.md" % t2)).resolve(),
-                                      out=out.resolve(), **common)
-                jobs.append((d, v["model"], txt, [out]))
-            else:
-                out = rd / "revised" / ("%s.md" % d)
-                dout = rd / "defense" / ("%s.md" % d)
-                txt = T_REVISE.format(id=d, lens_name=ln, lens_how=lh, own=own,
-                                      attacks_in=(rd / "attacks_in" / ("%s.md" % d)).resolve(),
-                                      defense_out=dout.resolve(), out=out.resolve(), **common)
-                jobs.append((d, v["model"], txt, [out, dout]))
-    elif phase == "judge":
+        return {"research": [rd / "dossier.md"]}
+    if phase == "duel":
+        return {d: [rd / "solutions" / f"{d}.md"] for d in ds}
+    if phase == "attack":
+        return {d: [rd / "attacks" / f"{d}.md"] for d in ds}
+    if phase == "revise":
+        return {d: [rd / "revised" / f"{d}.md", rd / "defense" / f"{d}.md"] for d in ds}
+    if phase == "judge":
+        skip = rd / "verdicts" / ".skip"
+        skipped = skip.read_text().split(",") if skip.exists() else []
+        return {f"judge-{m}": [rd / "verdicts" / f"judge-{m}.json"] for m in st["models"]
+                if f"judge-{m}" not in skipped}
+    return {}
+
+
+def brief_text(rd, st, phase, jid, outs):
+    """Fill the phase's template for one job."""
+    common = {"task": (rd / "task.md").read_text(), "dossier": (rd / "dossier.md").resolve(),
+              "run_dir": rd.resolve(), "out": outs[0].resolve()}
+    if phase == "research":
+        return T_RESEARCH.format(**common)
+    if phase == "judge":
         letters = sorted(st["mapping"])
-        answer_list = "\n".join("Answer %s: %s" % (L, (rd / "judging" / ("%s.md" % L)).resolve()) for L in letters)
-        for m in st["models"]:
-            out = rd / "verdicts" / ("judge-%s.json" % m)
-            txt = T_JUDGE.format(k=len(letters), letters=", ".join(letters), answer_list=answer_list,
-                                 judge=m, out=out.resolve(), **common)
-            jobs.append(("judge-%s" % m, m, txt, [out]))
-    return jobs
+        answer_list = "\n".join(f"Answer {L}: {(rd / 'judging' / f'{L}.md').resolve()}" for L in letters)
+        return T_JUDGE.format(k=len(letters), letters=", ".join(letters), answer_list=answer_list,
+                              judge=jid[len("judge-"):], **common)
+    lens_name, lens_how = LENSES[st["duelists"][jid]["lens"]]
+    duelist = {"id": jid, "lens_name": lens_name, "lens_how": lens_how,
+               "own": (rd / "solutions" / f"{jid}.md").resolve()}
+    if phase == "duel":
+        return T_DUEL.format(**duelist, **common)
+    if phase == "attack":
+        t1, t2 = rivals(st, jid)
+        return T_ATTACK.format(t1=t1, t2=t2, p1=(rd / "solutions" / f"{t1}.md").resolve(),
+                               p2=(rd / "solutions" / f"{t2}.md").resolve(), **duelist, **common)
+    return T_REVISE.format(attacks_in=(rd / "attacks_in" / f"{jid}.md").resolve(),
+                           defense_out=outs[1].resolve(), **duelist, **common)
+
+
+def job_model(st, phase, jid):
+    if phase == "research":
+        return st["models"][1]
+    if phase == "judge":
+        return jid[len("judge-"):]
+    return st["duelists"][jid]["model"]
+
+
+def pending(rd, st, phase):
+    return {jid: outs for jid, outs in expected_outputs(rd, st, phase).items()
+            if not all(has_output(o) for o in outs)}
 
 
 def current_phase(rd, st):
     if st.get("done"):
         return "done"
-    for phase in PHASES[:-1]:
-        pending = [j for j in jobs_for_check(rd, st, phase) if not all(has_output(o) for o in j[1])]
-        if pending:
-            return phase
-    return "tally"
+    return next((p for p in PHASES[:-1] if pending(rd, st, p)), "tally")
 
 
-def jobs_for_check(rd, st, phase):
-    ds = list(st["duelists"])
-    if phase == "research":
-        return [("research", [rd / "dossier.md"])]
-    if phase == "duel":
-        return [(d, [rd / "solutions" / ("%s.md" % d)]) for d in ds]
-    if phase == "attack":
-        return [(d, [rd / "attacks" / ("%s.md" % d)]) for d in ds]
-    if phase == "revise":
-        return [(d, [rd / "revised" / ("%s.md" % d), rd / "defense" / ("%s.md" % d)]) for d in ds]
-    if phase == "judge":
-        skip = rd / "verdicts" / ".skip"
-        skipped = skip.read_text().split(",") if skip.exists() else []
-        return [("judge-%s" % m, [rd / "verdicts" / ("judge-%s.json" % m)]) for m in st["models"]
-                if "judge-%s" % m not in skipped]
-    return []
-
-
-def cmd_next(a):
+def cmd_next(args):
     rd = run_dir()
     st = load(rd)
     phase = current_phase(rd, st)
     if phase == "done":
-        print("DONE. Read %s and the winning answer it names." % (rd / "result.md").resolve())
+        print(f"DONE. Read {(rd / 'result.md').resolve()} and the winning answer it names.")
         return
     if phase == "tally":
         print("PHASE tally: all judges are in. Run: python3 duel.py tally")
@@ -357,170 +334,156 @@ def cmd_next(a):
         split_attacks(rd, st)
     if phase == "judge" and not st.get("mapping"):
         anonymize(rd, st)
-        st = load(rd)
-    jobs = [j for j in jobs_for(rd, st, phase) if not all(has_output(o) for o in j[3])]
     runnable, gave_up = [], []
-    for jid, model, text, outs in jobs:
-        key = "%s:%s" % (phase, jid)
+    for jid, outs in pending(rd, st, phase).items():
+        key = f"{phase}:{jid}"
         tries = st["tries"].get(key, 0)
         if tries >= MAX_TRIES[phase]:
-            if phase == "judge":
-                gave_up.append(jid)
-                continue
-            for o in outs:
-                if not has_output(o):
-                    Path(o).write_text("NO OUTPUT\n")
             gave_up.append(jid)
+            if phase != "judge":
+                for o in outs:
+                    if not has_output(o):
+                        o.write_text("NO OUTPUT\n")
             continue
         st["tries"][key] = tries + 1
-        brief = rd / "briefs" / ("%s-%s.md" % (phase, jid))
-        brief.write_text(text)
-        runnable.append((jid, model, brief.resolve()))
+        brief = rd / "briefs" / f"{phase}-{jid}.md"
+        brief.write_text(brief_text(rd, st, phase, jid, outs))
+        runnable.append((jid, job_model(st, phase, jid), brief.resolve()))
     save(rd, st)
     if gave_up:
-        print("gave up on %s after the retry limit (marked NO OUTPUT; judges that fail are skipped)." % ", ".join(gave_up))
+        print(f"gave up on {', '.join(gave_up)} after the retry limit (marked NO OUTPUT; judges that fail are skipped).")
     if not runnable:
-        if phase == "judge" and gave_up:
+        if phase == "judge":
             (rd / "verdicts" / ".skip").write_text(",".join(gave_up))
             print("Run: python3 duel.py tally")
             return
-        return cmd_next(a)
-    print("PHASE %s: launch these %d sub-agents in ONE message, in parallel, then run next again." % (phase, len(runnable)))
+        return cmd_next(args)
+    print(f"PHASE {phase}: launch these {len(runnable)} sub-agents in ONE message, in parallel, then run next again.")
     for jid, model, brief in runnable:
-        print("JOB %s | model=%s | prompt: You are part of a structured multi-agent review. Your whole brief is in this file; read it and follow it exactly: %s" % (jid, model, brief))
+        print(f"JOB {jid} | model={model} | prompt: You are part of a structured multi-agent review. "
+              f"Your whole brief is in this file; read it and follow it exactly: {brief}")
 
 
 def parse_json(p):
+    """Read a verdict, tolerating a code fence or stray text around the JSON object."""
     raw = Path(p).read_text()
-    try:
-        return json.loads(raw)
-    except Exception:
-        m = re.search(r"\{.*\}", raw, flags=re.S)
-        if m:
+    for candidate in (raw, (re.search(r"\{.*\}", raw, flags=re.S) or [None])[0]):
+        if candidate:
             try:
-                return json.loads(m.group(0))
-            except Exception:
-                return None
+                return json.loads(candidate)
+            except ValueError:
+                pass
     return None
 
 
-def total(s):
+def weighted_total(scores):
     t = 0.0
-    for k, w in WEIGHTS.items():
+    for criterion, weight in WEIGHTS.items():
         try:
-            v = float(s.get(k, 0))
+            v = float(scores.get(criterion, 0))
         except (TypeError, ValueError):
             v = 0.0
-        t += w * max(0.0, min(10.0, v)) / 10.0
+        t += weight * max(0.0, min(10.0, v)) / 10.0
     return round(t, 1)
 
 
-def cmd_tally(a):
+def cmd_tally(args):
     rd = run_dir()
     st = load(rd)
-    mapping = st.get("mapping") or die("no judging yet. Run next.")
+    mapping = st.get("mapping")
+    if not mapping:
+        die("no judging yet. Run next.")
+    letter_of = {entry: L for L, entry in mapping.items()}
     verdicts = {}
     for m in st["models"]:
-        p = rd / "verdicts" / ("judge-%s.json" % m)
-        if has_output(p):
-            v = parse_json(p)
-            if v and isinstance(v.get("scores"), dict):
-                verdicts[m] = v
+        p = rd / "verdicts" / f"judge-{m}.json"
+        v = parse_json(p) if has_output(p) else None
+        if v and isinstance(v.get("scores"), dict):
+            verdicts[m] = v
     if not verdicts:
         die("no readable verdicts. Re-run next to retry the judges.")
+
     rows = {}
-    for L, who in mapping.items():
+    for L, entry in mapping.items():
         per, fatal = {}, 0
         for m, v in verdicts.items():
             s = v["scores"].get(L) or v["scores"].get(L.lower()) or {}
-            per[m] = total(s)
-            fatal += 1 if str(s.get("fatal", False)).lower() == "true" else 0
-        rows[L] = {"who": who, "per": per, "sum": round(sum(per.values()), 1), "fatal": fatal}
-    firsts = {}
-    for m, v in verdicts.items():
-        t3 = v.get("top3") or []
-        if t3:
-            firsts[m] = t3[0]
-    need = 2 if len(verdicts) >= 2 else 1
-    eligible = [L for L in rows if rows[L]["fatal"] < need] or list(rows)
-    ranked = sorted(rows, key=lambda L: (L in eligible,
-                                         rows[L]["sum"],
-                                         sum(1 for f in firsts.values() if f == L),
-                                         rows[L]["per"].get(st["models"][2], 0)), reverse=True)
+            per[m] = weighted_total(s)
+            fatal += str(s.get("fatal", False)).lower() == "true"
+        rows[L] = {"entry": entry, "per": per, "sum": round(sum(per.values()), 1), "fatal": fatal}
+    firsts = {m: v["top3"][0] for m, v in verdicts.items() if v.get("top3")}
+    fatal_bar = 2 if len(verdicts) >= 2 else 1
+    strongest = st["models"][2]
+    ranked = sorted(rows, reverse=True, key=lambda L: (
+        rows[L]["fatal"] < fatal_bar,                       # a fatal answer cannot beat a non-fatal one
+        rows[L]["sum"],
+        sum(1 for f in firsts.values() if f == L),          # tie: more first places
+        rows[L]["per"].get(strongest, 0)))                  # then the strongest judge's score
     win = ranked[0]
-    who = rows[win]["who"]
-    if who == "baseline":
-        win_path = (rd / "baseline.md").resolve()
-    else:
-        win_path = (rd / "judging" / ("%s.md" % win)).resolve()
+    winner = rows[win]["entry"]
+    win_path = (rd / "baseline.md") if winner == "baseline" else (rd / "judging" / f"{win}.md")
     maxsum = 100 * len(verdicts)
 
-    def label(w):
-        if w == "baseline":
+    def label(entry):
+        if entry == "baseline":
             return "rejected answer (baseline)"
-        v = st["duelists"][w]
-        return "%s %s/%s" % (w, v["model"], LENSES[v["lens"]][0])
+        v = st["duelists"][entry]
+        return f"{entry} {v['model']}/{LENSES[v['lens']][0]}"
 
-    out = ["# Duel result", ""]
-    out.append("Winner: %s, %s of %d points." % (label(who), rows[win]["sum"], maxsum))
-    out.append("Winning answer: %s" % win_path)
-    if who != "baseline":
-        out.append("Its defense: %s" % (rd / "defense" / ("%s.md" % who)).resolve())
-    out.append("")
-    out.append("Judges' first places: " + ", ".join("%s -> %s" % (m, label(mapping.get(L, L))) for m, L in firsts.items()))
-    uniq = set(firsts.values())
-    if len(firsts) == 3 and len(uniq) == 3:
+    out = ["# Duel result", "",
+           f"Winner: {label(winner)}, {rows[win]['sum']} of {maxsum} points.",
+           f"Winning answer: {win_path.resolve()}"]
+    if winner != "baseline":
+        out.append(f"Its defense: {(rd / 'defense' / f'{winner}.md').resolve()}")
+    out += ["", "Judges' first places: " + ", ".join(f"{m} -> {label(mapping.get(L, L))}" for m, L in firsts.items())]
+    picks = list(firsts.values())
+    if len(picks) == 3 and len(set(picks)) == 3:
         out.append("Split verdict: the three judges each picked a different winner. Treat the result as close.")
-    elif len(firsts) == 3 and len(uniq) == 2:
-        odd = [m for m, L in firsts.items() if list(firsts.values()).count(L) == 1]
-        out.append("Dissent: the %s judge picked differently from the other two." % odd[0])
+    elif len(picks) == 3 and len(set(picks)) == 2:
+        odd = next(m for m, L in firsts.items() if picks.count(L) == 1)
+        out.append(f"Dissent: the {odd} judge picked differently from the other two.")
     missing = [m for m in st["models"] if m not in verdicts]
     if missing:
-        out.append("Missing or unreadable verdicts: %s. Result uses %d judge(s)." % (", ".join(missing), len(verdicts)))
-    for m, v in verdicts.items():
-        if v.get("reason"):
-            out.append("- %s judge: %s" % (m, v["reason"]))
-    out.append("")
-    out.append("| rank | entry | " + " | ".join(verdicts) + " | total | fatal flags |")
-    out.append("|---|---|" + "---|" * len(verdicts) + "---|---|")
+        out.append(f"Missing or unreadable verdicts: {', '.join(missing)}. Result uses {len(verdicts)} judge(s).")
+    out += [f"- {m} judge: {v['reason']}" for m, v in verdicts.items() if v.get("reason")]
+
+    out += ["", "| rank | entry | " + " | ".join(verdicts) + " | total | fatal flags |",
+            "|---|---|" + "---|" * len(verdicts) + "---|---|"]
     for i, L in enumerate(ranked, 1):
         r = rows[L]
-        out.append("| %d | %s | %s | %s | %d |" % (i, label(r["who"]), " | ".join(str(r["per"][m]) for m in verdicts), r["sum"], r["fatal"]))
-    out.append("")
-    out.append("Average total by model x lens (out of %d):" % maxsum)
-    lk = list(LENSES)
-    out.append("| model | " + " | ".join(LENSES[k][0] for k in lk) + " | model avg |")
-    out.append("|---|" + "---|" * (len(lk) + 1))
+        out.append(f"| {i} | {label(r['entry'])} | " + " | ".join(str(r["per"][m]) for m in verdicts)
+                   + f" | {r['sum']} | {r['fatal']} |")
+
+    def cell(model, lens):
+        d = next(d for d, v in st["duelists"].items() if v["model"] == model and v["lens"] == lens)
+        return rows[letter_of[d]]["sum"]
+
+    lenses = list(LENSES)
+    out += ["", f"Average total by model x lens (out of {maxsum}):",
+            "| model | " + " | ".join(LENSES[k][0] for k in lenses) + " | model avg |",
+            "|---|" + "---|" * (len(lenses) + 1)]
     for m in st["models"]:
-        cells = []
-        for k in lk:
-            d = next(d for d, v in st["duelists"].items() if v["model"] == m and v["lens"] == k)
-            L = next(L for L, w in mapping.items() if w == d)
-            cells.append(rows[L]["sum"])
-        out.append("| %s | %s | %.1f |" % (m, " | ".join(str(c) for c in cells), sum(cells) / len(cells)))
-    lens_avg = []
-    for k in lk:
-        vals = [rows[next(L for L, w in mapping.items() if w == d)]["sum"] for d, v in st["duelists"].items() if v["lens"] == k]
-        lens_avg.append("%.1f" % (sum(vals) / len(vals)))
-    out.append("| lens avg | " + " | ".join(lens_avg) + " | |")
+        cells = [cell(m, k) for k in lenses]
+        out.append(f"| {m} | " + " | ".join(str(c) for c in cells) + f" | {sum(cells) / len(cells):.1f} |")
+    lens_avg = [sum(cell(m, k) for m in st["models"]) / 3 for k in lenses]
+    out.append("| lens avg | " + " | ".join(f"{a:.1f}" for a in lens_avg) + " | |")
     if st["baseline"]:
-        pos = ranked.index(next(L for L, w in mapping.items() if w == "baseline")) + 1
-        out.append("")
-        out.append("The rejected answer, judged blind among the others, placed %d of %d." % (pos, len(ranked)))
+        out += ["", f"The rejected answer, judged blind among the others, placed "
+                    f"{ranked.index(letter_of['baseline']) + 1} of {len(ranked)}."]
+
     (rd / "result.md").write_text("\n".join(out) + "\n")
     st["done"] = True
     save(rd, st)
     print("\n".join(out))
 
 
-def cmd_status(a):
+def cmd_status(args):
     rd = run_dir()
     st = load(rd)
-    print("run %s | phase %s" % (rd, current_phase(rd, st)))
+    print(f"run {rd} | phase {current_phase(rd, st)}")
     for phase in PHASES[:-1]:
-        js = jobs_for_check(rd, st, phase)
-        ok = sum(1 for j in js if all(has_output(o) for o in j[1]))
-        print("  %-8s %d/%d" % (phase, ok, len(js)))
+        expected = expected_outputs(rd, st, phase)
+        print(f"  {phase:<8} {len(expected) - len(pending(rd, st, phase))}/{len(expected)}")
 
 
 def main():
@@ -534,8 +497,8 @@ def main():
     p.set_defaults(fn=cmd_init)
     for name, fn in (("next", cmd_next), ("tally", cmd_tally), ("status", cmd_status)):
         sp.add_parser(name).set_defaults(fn=fn)
-    a = ap.parse_args()
-    a.fn(a)
+    args = ap.parse_args()
+    args.fn(args)
 
 
 if __name__ == "__main__":

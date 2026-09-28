@@ -74,7 +74,7 @@ def drive(sb, rng, skip_once=(), never=(), garbage_attacker=None, fatal_letter=N
     for _ in range(max_steps):
         code, out = sb.run("next")
         assert code == 0, out
-        if "PHASE tally" in out or out.startswith("Run: python3 duel.py tally") or "\nRun: python3 duel.py tally" in out:
+        if "Run: python3 duel.py tally" in out:
             return phases
         m = re.search(r"PHASE (\w+):", out)
         assert m, out
