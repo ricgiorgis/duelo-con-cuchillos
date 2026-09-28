@@ -1,6 +1,10 @@
-# Duelo a muerte con cuchillos
+# Duelo con cuchillos
 
-A knife duel for AI answers. [English](#english) · [Español](#español)
+![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.8%2B-blue) ![works with](https://img.shields.io/badge/works%20with-Claude%20%7C%20ChatGPT-black) ![dependencies](https://img.shields.io/badge/dependencies-none-lightgrey)
+
+Stop taking the first answer. Nine AI answers from three models fight to the death over your question, three blind judges pick the one you can actually use, and every fact has to show where it came from.
+
+[English](#english) · [Español](#español)
 
 ## English
 
@@ -45,15 +49,15 @@ Only when you ask: "duelo", "duelo a muerte", "knife duel", "knife fight", "make
 Claude Code, as a plugin:
 
 ```
-/plugin marketplace add ricgiorgis/duelo-a-muerte
-/plugin install duelo-a-muerte@duelo-a-muerte
+/plugin marketplace add ricgiorgis/duelo-con-cuchillos
+/plugin install duelo-con-cuchillos@duelo-con-cuchillos
 ```
 
 Claude Code, by hand:
 
 ```bash
-git clone https://github.com/ricgiorgis/duelo-a-muerte.git
-cp -r duelo-a-muerte/skills/duelo-a-muerte ~/.claude/skills/
+git clone https://github.com/ricgiorgis/duelo-con-cuchillos.git
+cp -r duelo-con-cuchillos/skills/duelo-a-muerte ~/.claude/skills/
 ```
 
 Claude app (claude.ai or desktop): upload `skills/duelo-a-muerte/SKILL.md` as a custom skill. The script is embedded in that file and gets written to disk on the first run.
