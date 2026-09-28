@@ -1,0 +1,10 @@
+{
+  "name": "duelo-a-muerte",
+  "description": "Knife duel: 9 sub-agents (haiku, sonnet, opus x practical, technical, skeptic) answer one task from a shared research dossier, attack each other, revise, and 3 blind judges pick the most useful, evidence-backed answer. 31 calls, bilingual (ES/EN).",
+  "version": "1.0.0",
+  "author": { "name": "Rik Giorgis" },
+  "homepage": "https://github.com/ricgiorgis/duelo-a-muerte",
+  "repository": "https://github.com/ricgiorgis/duelo-a-muerte",
+  "license": "MIT",
+  "keywords": ["claude-code", "subagents", "multi-agent", "llm-as-judge", "research", "decision-making"]
+}

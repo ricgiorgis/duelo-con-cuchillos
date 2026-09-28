@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "duelo-a-muerte",
+  "description": "Duelo a muerte con cuchillos / Knife duel skill",
+  "owner": { "name": "Rik Giorgis" },
+  "plugins": [
+    {
+      "name": "duelo-a-muerte",
+      "description": "Nine sub-agents across three models and three lenses fight over one task; three blind judges pick the most useful, evidence-backed answer.",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/ricgiorgis/duelo-a-muerte"
+    }
+  ]
+}

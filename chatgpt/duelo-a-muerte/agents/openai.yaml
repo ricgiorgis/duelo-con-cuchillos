@@ -1,0 +1,5 @@
+interface:
+  display_name: "Duelo a muerte con cuchillos"
+  short_description: "9 agentes, 3 modelos, 3 jueces: gana la respuesta más útil y respaldada"
+policy:
+  allow_implicit_invocation: true
