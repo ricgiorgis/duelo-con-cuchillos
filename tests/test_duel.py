@@ -152,7 +152,7 @@ class TestDuel(unittest.TestCase):
     def test_unparseable_attack_file_falls_back_to_full_text(self):
         self.sb.run("init", "--task", "task.md", "--seed", "5")
         drive(self.sb, random.Random(4), garbage_attacker="d1")
-        rd = next((self.sb.dir / ".duel").glob("*/"))
+        rd = Path((self.sb.dir / ".duel" / "LATEST").read_text().strip())
         st = json.loads((rd / "state.json").read_text())
         victims = [d for g in st["groups"] if "d1" in g for d in g if d != "d1"]
         for v in victims:
@@ -170,7 +170,7 @@ class TestDuel(unittest.TestCase):
         drive(self.sb, random.Random(6), fatal_letter="A")
         code, out = self.sb.run("tally")
         self.assertEqual(code, 0, out)
-        rd = next((self.sb.dir / ".duel").glob("*/"))
+        rd = Path((self.sb.dir / ".duel" / "LATEST").read_text().strip())
         st = json.loads((rd / "state.json").read_text())
         self.assertNotIn("judging/A.md", out.split("Winning answer:")[1].splitlines()[0])
         self.assertIn("A", st["mapping"])
